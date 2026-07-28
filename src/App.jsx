@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import Sidebar from './components/Sidebar';
+import ImageGenModal from './components/ImageGenModal';
 
 export default function App() {
   const [chats, setChats] = useState(() => {
@@ -12,12 +13,11 @@ export default function App() {
   });
 
   const [currentChatId, setCurrentChatId] = useState(() => chats[0]?.id || Date.now().toString());
+  const [isImageModalOpen, setIsImageModalOpen] = useState(false); 
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState(null);
   const messagesEndRef = useRef(null);
-
-  const currentChat = chats.find((c) => c.id === currentChatId) || chats[0];
 
   useEffect(() => {
     localStorage.setItem('omnimind_chats', JSON.stringify(chats));
@@ -25,7 +25,7 @@ export default function App() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [currentChat?.messages]);
+  }, [chats, currentChatId]);
 
   const handleNewChat = () => {
     const newChat = { id: Date.now().toString(), title: 'New Chat', messages: [] };
@@ -45,11 +45,7 @@ export default function App() {
     }
   };
 
-  const copyToClipboard = (text, index) => {
-    navigator.clipboard.writeText(text);
-    setCopiedIndex(index);
-    setTimeout(() => setCopiedIndex(null), 2000);
-  };
+  const currentChat = chats.find((c) => c.id === currentChatId) || chats[0];
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -107,6 +103,12 @@ export default function App() {
     }
   };
 
+  const copyToClipboard = (text, index) => {
+    navigator.clipboard.writeText(text);
+    setCopiedIndex(index);
+    setTimeout(() => setCopiedIndex(null), 2000);
+  };
+
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100 font-sans">
       <Sidebar
@@ -115,31 +117,23 @@ export default function App() {
         onSelectChat={setCurrentChatId}
         onNewChat={handleNewChat}
         onDeleteChat={handleDeleteChat}
+        onOpenImageGen={() => setIsImageModalOpen(true)} 
       />
 
       <main className="flex-1 flex flex-col h-full relative">
         <div className="flex-1 overflow-y-auto p-6 space-y-6 max-w-4xl w-full mx-auto">
           {currentChat.messages.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-slate-500">
-              <h2 className="text-2xl font-bold mb-2 text-slate-200">Welcome to OmniMind AI</h2>
-              <p className="text-sm">Type a message below to start chatting.</p>
+            <div className="flex flex-col items-center justify-center h-full text-slate-500 p-10 text-center">
+              <h2 className="text-3xl font-extrabold mb-3 text-slate-200">Welcome to OmniMind AI</h2>
+              <p className="text-sm max-w-md">Type a message below for chat, or use the Sidebar to generate images with Diffusion models.</p>
             </div>
           ) : (
             currentChat.messages.map((msg, idx) => (
-              <div
-                key={idx}
-                className={`flex gap-4 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
-                <div
-                  className={`max-w-[80%] rounded-2xl p-4 text-sm leading-relaxed ${
-                    msg.role === 'user'
-                      ? 'bg-blue-600 text-white rounded-br-none'
-                      : 'bg-slate-900 border border-slate-800 text-slate-200 rounded-bl-none'
-                  }`}
-                >
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    components={{
+              <div key={idx} className={`flex gap-4 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[80%] rounded-2xl p-4 text-sm leading-relaxed ${
+                    msg.role === 'user' ? 'bg-blue-600 text-white rounded-br-none' : 'bg-slate-900 border border-slate-800 text-slate-200 rounded-bl-none'
+                  }`}>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
                       code({ node, inline, className, children, ...props }) {
                         const match = /language-(\w+)/.exec(className || '');
                         const codeString = String(children).replace(/\n$/, '');
@@ -147,19 +141,11 @@ export default function App() {
                           <div className="relative my-2 rounded-lg overflow-hidden border border-slate-700">
                             <div className="flex justify-between items-center bg-slate-800 px-3 py-1 text-xs text-slate-400">
                               <span>{match[1]}</span>
-                              <button
-                                onClick={() => copyToClipboard(codeString, `${idx}-${match[1]}`)}
-                                className="hover:text-white transition"
-                              >
+                              <button onClick={() => copyToClipboard(codeString, `${idx}-${match[1]}`)} className="hover:text-white transition">
                                 {copiedIndex === `${idx}-${match[1]}` ? 'Copied!' : 'Copy Code'}
                               </button>
                             </div>
-                            <SyntaxHighlighter
-                              style={atomDark}
-                              language={match[1]}
-                              PreTag="div"
-                              {...props}
-                            >
+                            <SyntaxHighlighter style={atomDark} language={match[1]} PreTag="div" {...props}>
                               {codeString}
                             </SyntaxHighlighter>
                           </div>
@@ -169,8 +155,7 @@ export default function App() {
                           </code>
                         );
                       },
-                    }}
-                  >
+                    }}>
                     {msg.content}
                   </ReactMarkdown>
                 </div>
@@ -185,23 +170,16 @@ export default function App() {
 
         <div className="p-4 border-t border-slate-800 bg-slate-950">
           <form onSubmit={handleSubmit} className="max-w-4xl mx-auto flex gap-3">
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Message OmniMind AI..."
-              className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition text-slate-100 placeholder-slate-500"
-            />
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-5 py-3 rounded-xl font-medium text-sm transition"
-            >
-              Send
-            </button>
+            <input type="text" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Message OmniMind AI..." className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition text-slate-100 placeholder-slate-500"/>
+            <button type="submit" disabled={isLoading} className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-5 py-3 rounded-xl font-medium text-sm transition">Send</button>
           </form>
         </div>
       </main>
+
+      <ImageGenModal 
+        isOpen={isImageModalOpen} 
+        onClose={() => setIsImageModalOpen(false)} 
+      />
     </div>
   );
-  }
+      }
