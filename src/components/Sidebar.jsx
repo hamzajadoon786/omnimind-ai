@@ -1,11 +1,13 @@
 import React from 'react';
+import { Sparkles, MessageSquarePlus, Trash2 } from 'lucide-react';
 
 export default function Sidebar({ 
   chats, 
   currentChatId, 
   onSelectChat, 
   onNewChat, 
-  onDeleteChat 
+  onDeleteChat,
+  onOpenImageGen 
 }) {
   return (
     <aside className="w-64 bg-slate-900 text-slate-100 h-screen flex flex-col justify-between border-r border-slate-800">
@@ -16,13 +18,24 @@ export default function Sidebar({
           </h1>
           <button 
             onClick={onNewChat}
-            className="p-2 bg-slate-800 hover:bg-slate-700 rounded-md text-sm font-medium transition"
+            className="p-2 bg-slate-800 hover:bg-slate-700 rounded-md text-sm font-medium transition flex items-center gap-1.5"
           >
+            <MessageSquarePlus className="w-4 h-4" />
             + New
           </button>
         </div>
 
-        <div className="p-2 space-y-1 overflow-y-auto max-h-[calc(100vh-120px)]">
+        <div className="p-3 border-b border-slate-800">
+          <button 
+            onClick={onOpenImageGen}
+            className="w-full flex items-center gap-3 p-3 rounded-lg bg-teal-950/30 text-teal-300 border border-teal-800 hover:bg-teal-900/50 transition font-medium text-sm"
+          >
+            <Sparkles className="w-5 h-5" />
+            Generate Images
+          </button>
+        </div>
+
+        <div className="p-2 space-y-1 overflow-y-auto max-h-[calc(100vh-200px)]">
           {chats.map((chat) => (
             <div
               key={chat.id}
@@ -41,7 +54,7 @@ export default function Sidebar({
                 }}
                 className="text-slate-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition p-1"
               >
-                ✕
+                <Trash2 className="w-4 h-4" />
               </button>
             </div>
           ))}
@@ -53,4 +66,4 @@ export default function Sidebar({
       </div>
     </aside>
   );
-                }
+          }
