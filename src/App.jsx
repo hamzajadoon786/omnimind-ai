@@ -1,159 +1,207 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import Sidebar from './components/Sidebar';
-import { askMistral } from './services/mistral';
 
-function App() {
+export default function App() {
+  const [chats, setChats] = useState(() => {
+    const saved = localStorage.getItem('omnimind_chats');
+    return saved ? JSON.parse(saved) : [{ id: Date.now().toString(), title: 'New Chat', messages: [] }];
+  });
+
+  const [currentChatId, setCurrentChatId] = useState(() => chats[0]?.id || Date.now().toString());
   const [input, setInput] = useState('');
-  const [messages, setMessages] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const chatEndRef = useRef(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [copiedIndex, setCopiedIndex] = useState(null);
+  const messagesEndRef = useRef(null);
 
-  // چیٹ اٹومیٹک نیچے اسکرول کرنے کے لیے
+  const currentChat = chats.find((c) => c.id === currentChatId) || chats[0];
+
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, loading]);
+    localStorage.setItem('omnimind_chats', JSON.stringify(chats));
+  }, [chats]);
 
-  const handleSend = async () => {
-    if (!input.trim() || loading) return;
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [currentChat?.messages]);
 
-    const userText = input.trim();
-    setInput('');
-    
-    // صارف کا میسج شامل کریں
-    const updatedMessages = [...messages, { role: 'user', text: userText }];
-    setMessages(updatedMessages);
-    setLoading(true);
+  const handleNewChat = () => {
+    const newChat = { id: Date.now().toString(), title: 'New Chat', messages: [] };
+    setChats((prev) => [newChat, ...prev]);
+    setCurrentChatId(newChat.id);
+  };
 
-    try {
-      const reply = await askMistral(userText);
-      setMessages([...updatedMessages, { role: 'assistant', text: reply }]);
-    } catch (err) {
-      setMessages([
-        ...updatedMessages, 
-        { role: 'assistant', text: "❌ معذرت! AI سے جواب حاصل نہیں ہو سکا۔ کی (API Key) یا کنیکشن چیک کریں۔" }
-      ]);
-    } finally {
-      setLoading(false);
+  const handleDeleteChat = (id) => {
+    const filtered = chats.filter((c) => c.id !== id);
+    if (filtered.length === 0) {
+      const defaultChat = { id: Date.now().toString(), title: 'New Chat', messages: [] };
+      setChats([defaultChat]);
+      setCurrentChatId(defaultChat.id);
+    } else {
+      setChats(filtered);
+      if (currentChatId === id) setCurrentChatId(filtered[0].id);
     }
   };
 
-  const clearChat = () => {
-    setMessages([]);
+  const copyToClipboard = (text, index) => {
+    navigator.clipboard.writeText(text);
+    setCopiedIndex(index);
+    setTimeout(() => setCopiedIndex(null), 2000);
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!input.trim() || isLoading) return;
+
+    const userMessage = { role: 'user', content: input };
+    const updatedMessages = [...currentChat.messages, userMessage];
+    
+    const updatedTitle = currentChat.messages.length === 0 ? input.slice(0, 20) + '...' : currentChat.title;
+
+    setChats((prev) =>
+      prev.map((c) =>
+        c.id === currentChatId
+          ? { ...c, title: updatedTitle, messages: updatedMessages }
+          : c
+      )
+    );
+
+    setInput('');
+    setIsLoading(true);
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [
+            { role: 'system', content: 'You are OmniMind AI, an advanced, highly intelligent AI assistant.' },
+            ...updatedMessages,
+          ],
+        }),
+      });
+
+      const data = await response.json();
+      const aiMessage = { role: 'assistant', content: data.reply || 'No response received.' };
+
+      setChats((prev) =>
+        prev.map((c) =>
+          c.id === currentChatId
+            ? { ...c, messages: [...c.messages, aiMessage] }
+            : c
+        )
+      );
+    } catch (err) {
+      console.error(err);
+      setChats((prev) =>
+        prev.map((c) =>
+          c.id === currentChatId
+            ? { ...c, messages: [...c.messages, { role: 'assistant', content: '⚠️ Server connect hone mein error aaya.' }] }
+            : c
+        )
+      );
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
-    <div style={{ display: 'flex', height: '100vh', backgroundColor: '#0f172a', color: '#f8fafc', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
-      {/* سائیڈ بار Component */}
-      <Sidebar />
+    <div className="flex h-screen bg-slate-950 text-slate-100 font-sans">
+      <Sidebar
+        chats={chats}
+        currentChatId={currentChatId}
+        onSelectChat={setCurrentChatId}
+        onNewChat={handleNewChat}
+        onDeleteChat={handleDeleteChat}
+      />
 
-      {/* مین چیٹ باڈی */}
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100vh' }}>
-        
-        {/* ہیڈر (Header) */}
-        <header style={{ padding: '16px 24px', borderBottom: '1px solid #1e293b', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#1e293b' }}>
-          <div>
-            <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 'bold', color: '#38bdf8' }}>Omnimind AI</h1>
-            <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: '#94a3b8' }}>Advanced AI Assistant Engine</p>
-          </div>
-          {messages.length > 0 && (
-            <button 
-              onClick={clearChat}
-              style={{ backgroundColor: '#ef4444', color: '#fff', border: 'none', padding: '8px 14px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer', fontWeight: '500' }}>
-              Clear Chat
-            </button>
-          )}
-        </header>
-
-        {/* چیٹ ہسٹری (Chat Messages Area) */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          {messages.length === 0 ? (
-            <div style={{ margin: 'auto', textAlign: 'center', color: '#64748b' }}>
-              <div style={{ fontSize: '48px', marginBottom: '12px' }}>🤖</div>
-              <h2 style={{ color: '#e2e8f0', margin: '0 0 8px 0' }}>Welcome to Omnimind AI</h2>
-              <p style={{ margin: 0, fontSize: '14px' }}>How can I help you today? Type a message below to get started.</p>
+      <main className="flex-1 flex flex-col h-full relative">
+        <div className="flex-1 overflow-y-auto p-6 space-y-6 max-w-4xl w-full mx-auto">
+          {currentChat.messages.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-slate-500">
+              <h2 className="text-2xl font-bold mb-2 text-slate-200">Welcome to OmniMind AI</h2>
+              <p className="text-sm">Type a message below to start chatting.</p>
             </div>
           ) : (
-            messages.map((msg, index) => (
-              <div 
-                key={index}
-                style={{
-                  display: 'flex',
-                  justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
-                }}>
-                <div style={{
-                  maxWidth: '75%',
-                  padding: '12px 18px',
-                  borderRadius: msg.role === 'user' ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-                  backgroundColor: msg.role === 'user' ? '#0284c7' : '#334155',
-                  color: '#ffffff',
-                  fontSize: '15px',
-                  lineHeight: '1.5',
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word',
-                  boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                }}>
-                  <strong style={{ display: 'block', fontSize: '11px', color: msg.role === 'user' ? '#bae6fd' : '#94a3b8', marginBottom: '4px' }}>
-                    {msg.role === 'user' ? 'You' : 'Omnimind AI'}
-                  </strong>
-                  {msg.text}
+            currentChat.messages.map((msg, idx) => (
+              <div
+                key={idx}
+                className={`flex gap-4 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+              >
+                <div
+                  className={`max-w-[80%] rounded-2xl p-4 text-sm leading-relaxed ${
+                    msg.role === 'user'
+                      ? 'bg-blue-600 text-white rounded-br-none'
+                      : 'bg-slate-900 border border-slate-800 text-slate-200 rounded-bl-none'
+                  }`}
+                >
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      code({ node, inline, className, children, ...props }) {
+                        const match = /language-(\w+)/.exec(className || '');
+                        const codeString = String(children).replace(/\n$/, '');
+                        return !inline && match ? (
+                          <div className="relative my-2 rounded-lg overflow-hidden border border-slate-700">
+                            <div className="flex justify-between items-center bg-slate-800 px-3 py-1 text-xs text-slate-400">
+                              <span>{match[1]}</span>
+                              <button
+                                onClick={() => copyToClipboard(codeString, `${idx}-${match[1]}`)}
+                                className="hover:text-white transition"
+                              >
+                                {copiedIndex === `${idx}-${match[1]}` ? 'Copied!' : 'Copy Code'}
+                              </button>
+                            </div>
+                            <SyntaxHighlighter
+                              style={atomDark}
+                              language={match[1]}
+                              PreTag="div"
+                              {...props}
+                            >
+                              {codeString}
+                            </SyntaxHighlighter>
+                          </div>
+                        ) : (
+                          <code className="bg-slate-800 px-1 py-0.5 rounded font-mono text-xs" {...props}>
+                            {children}
+                          </code>
+                        );
+                      },
+                    }}
+                  >
+                    {msg.content}
+                  </ReactMarkdown>
                 </div>
               </div>
             ))
           )}
-
-          {/* لوڈنگ انڈیکیٹر */}
-          {loading && (
-            <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
-              <div style={{ backgroundColor: '#334155', padding: '12px 18px', borderRadius: '18px 18px 18px 4px', color: '#94a3b8', fontSize: '14px' }}>
-                Omnimind AI is thinking...
-              </div>
-            </div>
+          {isLoading && (
+            <div className="text-slate-500 text-sm italic animate-pulse">OmniMind AI is thinking...</div>
           )}
-          <div ref={chatEndRef} />
+          <div ref={messagesEndRef} />
         </div>
 
-        {/* ان پٹ باکس (Input Box Section) */}
-        <div style={{ padding: '16px 24px', backgroundColor: '#1e293b', borderTop: '1px solid #334155' }}>
-          <div style={{ display: 'flex', gap: '12px', maxWidth: '1000px', margin: '0 auto' }}>
-            <input 
+        <div className="p-4 border-t border-slate-800 bg-slate-950">
+          <form onSubmit={handleSubmit} className="max-w-4xl mx-auto flex gap-3">
+            <input
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-              placeholder="Ask Omnimind AI anything..."
-              style={{
-                flex: 1,
-                padding: '14px 18px',
-                fontSize: '15px',
-                backgroundColor: '#0f172a',
-                color: '#ffffff',
-                border: '1px solid #475569',
-                borderRadius: '8px',
-                outline: 'none'
-              }}
+              placeholder="Message OmniMind AI..."
+              className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition text-slate-100 placeholder-slate-500"
             />
-            <button 
-              onClick={handleSend}
-              disabled={loading || !input.trim()}
-              style={{
-                padding: '14px 24px',
-                fontSize: '15px',
-                fontWeight: 'bold',
-                backgroundColor: loading || !input.trim() ? '#475569' : '#0284c7',
-                color: '#ffffff',
-                border: 'none',
-                borderRadius: '8px',
-                cursor: loading || !input.trim() ? 'not-allowed' : 'pointer',
-                transition: 'background-color 0.2s'
-              }}>
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-5 py-3 rounded-xl font-medium text-sm transition"
+            >
               Send
             </button>
-          </div>
+          </form>
         </div>
-
       </main>
     </div>
   );
-}
-
-export default App;
+  }
