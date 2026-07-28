@@ -3,34 +3,64 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { messages, model = 'mistral-small-latest' } = req.body;
-  const apiKey = process.env.MISTRAL_API_KEY;
+  const { messages, model } = req.body;
 
-  if (!apiKey) {
-    return res.status(500).json({ error: 'MISTRAL_API_KEY is missing in Vercel environment' });
+  if (!messages || !Array.isArray(messages)) {
+    return res.status(400).json({ error: 'Messages array is required.' });
   }
+
+  const apiKey = process.env.HF_TOKEN;
+  if (!apiKey) {
+    return res.status(500).json({ error: 'API token is missing in Vercel environment variables.' });
+  }
+
+  const selectedModel = model || 'meta-llama/Meta-Llama-3-8B-Instruct';
+
+  // Construct prompt history for Instruct models
+  const lastUserMessage = messages[messages.length - 1]?.content || '';
 
   try {
-    const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: model,
-        messages: messages,
-      }),
-    });
+    const response = await fetch(
+      `https://api-inference.huggingface.co/models/${selectedModel}`,
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
+        body: JSON.stringify({
+          inputs: lastUserMessage,
+          parameters: {
+            max_new_tokens: 1024,
+            temperature: 0.7,
+            return_full_text: false,
+          },
+        }),
+      }
+    );
 
-    const data = await response.json();
+    const result = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.error?.message || 'Failed to connect to Mistral AI');
+      console.error('Hugging Face API Error:', result);
+      return res.status(response.status).json({
+        error: result.error || 'Failed to fetch response from model.'
+      });
     }
 
-    return res.status(200).json(data);
+    let replyText = '';
+    if (Array.isArray(result) && result[0]?.generated_text) {
+      replyText = result[0].generated_text;
+    } else if (result.generated_text) {
+      replyText = result.generated_text;
+    } else {
+      replyText = typeof result === 'string' ? result : JSON.stringify(result);
+    }
+
+    return res.status(200).json({ reply: replyText });
+
   } catch (error) {
-    return res.status(500).json({ error: error.message });
+    console.error('Serverless Error:', error);
+    return res.status(500).json({ error: 'Internal Server Error' });
   }
-}
+      }
